@@ -1,7 +1,6 @@
 use bcrypt::DEFAULT_COST;
 use rusqlite::Connection;
 use std::env;
-use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::path::{Path, PathBuf};
 
@@ -67,19 +66,16 @@ fn create_database_tables(db_path: &Path) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn _execute_sql_from_file(
-    db_path: &PathBuf,
-    sql_file_path: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
+fn _execute_sql_from_file(db_path: &Path, sql_file_path: &Path) {
     // Open the database connection
-    let conn = Connection::open(PathBuf::from(db_path))?;
+    let conn: Connection = Connection::open(db_path).expect("Unable to open connection to db.");
 
     // Read and execute the SQL from the .sql file
-    let sql = std::fs::read_to_string(PathBuf::from(sql_file_path))?;
+    let sql: String =
+        std::fs::read_to_string(sql_file_path).expect("Create string from sql file path...");
 
-    conn.execute_batch(&sql)?;
-
-    Ok(())
+    conn.execute_batch(&sql)
+        .expect("Unable to execute sql batch code");
 }
 
 fn get_and_insert_user(db_path: &Path) -> rusqlite::Result<()> {
