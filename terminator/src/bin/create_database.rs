@@ -1,9 +1,11 @@
 use bcrypt::DEFAULT_COST;
 use chrono::{DateTime, Datelike, Utc};
 use rusqlite::Connection;
-use std::env;
+use std::{env, fs};
+use std::fs::{create_dir, read_to_string};
 use std::io::{stdin, stdout, Write};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
+use std::process::exit;
 
 const ASSET_DIR_NAME: &str = "assets";
 const DATABASE_NAME: &str = "terminator.db";
@@ -12,11 +14,19 @@ const EXAMS_TABLE: &str = "exams.sql";
 const EXAM_CREATION_TABLE: &str = "exam_creation.sql";
 const QUESTIONS_TABLE: &str = "questions.sql";
 
-fn create_database_tables(db_path: &Path) -> rusqlite::Result<()> {
+#[doc(hidden)]
+/// Creates the database, `terminator.db`, and the tables for `terminator.db`.
+/// The schemas for each of the tables are as follows:
+///
+/// - Users (**Username**: Text, Password: Text)
+/// - Exams (**ExamID**: Int, Title: Text, Description: Text)
+/// - ExamCreation (_**ExamID**_: Int, _**CreatorUsername**_: Text, DateCreated: Text)
+/// - Questions (**QuestionID**: Int, QuestionText: Text, Options: Text, CorrectAnswer: Text, Explanation: Text, *ExamID*: Int)
+fn create_database_and_tables(db_path: &Path) -> rusqlite::Result<()> {
     // Creates the database if it doesn't exists, and opens it for updating.
     let conn = Connection::open(db_path)?;
 
-    // Create the Users Table
+    // Create Users Table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS Users (\
         Username TEXT NOT NULL UNIQUE,\
@@ -25,7 +35,7 @@ fn create_database_tables(db_path: &Path) -> rusqlite::Result<()> {
         [],
     )?;
 
-    // Create Exams Table
+    // Create Exams
     conn.execute(
         "CREATE TABLE IF NOT EXISTS Exams (\
         ExamID INTEGER PRIMARY KEY AUTOINCREMENT,\
@@ -35,7 +45,7 @@ fn create_database_tables(db_path: &Path) -> rusqlite::Result<()> {
         [],
     )?;
 
-    // Create the Exam Creation Table; DateCreated is YYYY-MM-DD format
+    // Create ExamCreation Table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS ExamCreation (\
         ExamID INTEGER NOT NULL,\
@@ -48,7 +58,7 @@ fn create_database_tables(db_path: &Path) -> rusqlite::Result<()> {
         [],
     )?;
 
-    // Create the Questions Table
+    // Create Questions Table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS Questions (\
         QuestionID INTEGER PRIMARY KEY AUTOINCREMENT,\
@@ -65,20 +75,110 @@ fn create_database_tables(db_path: &Path) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn add_exam() {
+#[doc(hidden)]
+/// Executes SQL commands from a `.sql` file for performing functions on tables within the
+/// database passed via `db_path`.
+///
+/// # Arguments
+/// * `db_path` - a reference to the `Path` that leads to the database (e.g., `.db` file).
+/// * `sql_file_path` - a reference to the `PathBuf` that leads to the SQL file for adjusting some
+/// table within the database located at `db_path`.
+///
+/// **Note: the `Exams` and `Users` tables must have their commands executed before calling an
+/// `ExamCreation` adjustment since the `ExamCreation` table requires information from both the
+/// `Users` table (for the `CreatorUsername`) and the `Exams` table (for the `ExamID`) foreign
+/// keys.**
+fn _execute_sql_from_file(db_path: &Path, sql_file_path: &PathBuf) {
+    // Open the database connection
+    let conn: Connection = Connection::open(db_path).expect("Unable to open connection to db.");
+
+    if let Ok(sql) = read_to_string(sql_file_path) {
+        match conn.execute_batch(&sql) {
+            Ok(_) => println!("Batch sql execution successful."),
+            Err(e) => eprintln!("Unable to execute batch sql: {}", e),
+        }
+    }
+}
+
+
+
+
+fn main() {
+    let mut base_path: PathBuf = env::current_dir().expect("Unable to get current directory...");
+    base_path.pop();
+    base_path.pop();
+    base_path.push(ASSET_DIR_NAME);
+
+    // Create assets directory two levels up from cwd
+    if create_dir(&base_path).is_err() {
+        eprintln!("Unable to create the {} directory.", ASSET_DIR_NAME);
+        exit(1)
+    }
+
+    println!("Created {} directory.", ASSET_DIR_NAME);
+
+    // Establish paths to DB and .sql files for each DB Table
+    // Database path
+    let mut db_path: PathBuf = PathBuf::from(&base_path);
+    db_path.push(DATABASE_NAME);
+
+    // Users table path
+    let mut users_path: PathBuf = PathBuf::from(&base_path);
+    users_path.push(USERS_TABLE);
+
+    // Exams table path
+    let mut exams_path: PathBuf = PathBuf::from(&base_path);
+    exams_path.push(EXAMS_TABLE);
+
+    // ExamCreation table path
+    let mut exam_creation_path: PathBuf = PathBuf::from(&base_path);
+    exam_creation_path.push(EXAM_CREATION_TABLE);
+
+    // Questions table path
+    let mut questions_path: PathBuf = PathBuf::from(&base_path);
+    questions_path.push(QUESTIONS_TABLE);
+
+    // Create the database and all tables (code works):
+    if create_database_and_tables(&db_path).is_err() {
+        eprintln!("Unable to create database and tables.");
+        exit(1)
+    }
+
+    println!("Database and tables created successfully.");
+
+    // TODO: Execute the batch SQL commands to build the records in the database.
+
+    //let DATABASE: PathBuf = PathBuf::from(format!("{}{}", "./", DATABASE_NAME));
+
+    /*
+    create_database_tables(&test).expect("Unable to run create_database_tables()...");
+    get_and_insert_user(&test).expect("Unable to run get_and_insert_user");
+     */
+
+    // let DATABASE_PATH: PathBuf = PathBuf::from("../../assets/");
+    // create_database_tables()?;
+    // execute_sql_from_file(&DATABASE_PATH, format!("{}{}", SQL_FILE_PATH, "TBD.sql"))?;
+    // insert_username()?;
+    // execute_sql_from_file(DATABASE_PATH, "../../exam_creation.sql")?;
+    // execute_sql_from_file(DATABASE_PATH, "../../questions.sql")?;
+}
+
+
+/*
+fn _add_exam() {
     let db_path: PathBuf = PathBuf::from(format!(
         "..{}..{}{}",
         MAIN_SEPARATOR_STR, MAIN_SEPARATOR_STR, ASSET_DIR_NAME
     ));
-    let conn: Connection = Connection::open(db_path).expect("Unable to access DB for adding exam");
+    let _conn: Connection = Connection::open(db_path).expect("Unable to access DB for adding exam");
 
-    fn add_question_to_exam(exam: i32) -> bool {
+    fn _add_question_to_exam(_exam: i32) -> bool {
         let mut result: bool = false;
         // TODO:
         return result;
     }
 
-    fn add_exam_manually() -> bool {
+    fn _add_exam_manually() -> bool {
         let mut result: bool = false;
         let mut input_string: String = String::new();
 
@@ -114,13 +214,13 @@ fn add_exam() {
         result
     }
 
-    fn add_exam_by_script() -> bool {
+    fn _add_exam_by_script() -> bool {
         let mut result: bool = false;
         // TODO
         result
     }
 
-    fn add_exam_creator(exam_id: i32, creator_username: String, conn: &Connection) -> bool {
+    fn _add_exam_creator(exam_id: i32, creator_username: String, conn: &Connection) -> bool {
         let mut result: bool = false;
         let current_date: DateTime<Utc> = chrono::Utc::now();
         let year = current_date.year();
@@ -163,8 +263,8 @@ fn add_exam() {
         match choice {
             Ok(num) if num == 1 || num == 2 => {
                 let completed: bool = match num {
-                    1 => add_exam_by_script(),
-                    _ => add_exam_manually(),
+                    1 => _add_exam_by_script(),
+                    _ => _add_exam_manually(),
                 };
                 if completed {
                     break;
@@ -176,19 +276,10 @@ fn add_exam() {
         }
     }
 }
+ */
 
-fn _execute_sql_from_file(db_path: &Path, sql_file_path: &Path) {
-    // Open the database connection
-    let conn: Connection = Connection::open(db_path).expect("Unable to open connection to db.");
 
-    // Read and execute the SQL from the .sql file
-    let sql: String =
-        std::fs::read_to_string(sql_file_path).expect("Create string from sql file path...");
-
-    conn.execute_batch(&sql)
-        .expect("Unable to execute sql batch code");
-}
-
+/*
 fn get_and_insert_user(db_path: &Path) -> rusqlite::Result<()> {
     fn get_valid_username(c: &Connection) -> String {
         let mut temp: String = String::new();
@@ -271,33 +362,4 @@ fn get_and_insert_user(db_path: &Path) -> rusqlite::Result<()> {
 
     Ok(())
 }
-fn main() {
-    let mut base_path: PathBuf = env::current_dir().expect("Unable to get current directory...");
-    base_path.pop();
-    base_path.pop();
-    base_path.push(ASSET_DIR_NAME);
-
-    // Establish paths to DB and .sql files for each DB Table
-    let mut db_path: PathBuf = PathBuf::from(&base_path);
-    db_path.push(DATABASE_NAME);
-    let mut users_path: PathBuf = PathBuf::from(&base_path);
-    users_path.push(USERS_TABLE);
-    let mut exams_path: PathBuf = PathBuf::from(&base_path);
-    exams_path.push(EXAMS_TABLE);
-    let mut exam_creation_path: PathBuf = PathBuf::from(&base_path);
-    exam_creation_path.push(EXAM_CREATION_TABLE);
-    let mut questions_path: PathBuf = PathBuf::from(&base_path);
-    questions_path.push(QUESTIONS_TABLE);
-
-    let test = PathBuf::from(format!("{}{}", "./", DATABASE_NAME));
-
-    create_database_tables(&test).expect("Unable to run create_database_tables()...");
-    get_and_insert_user(&test).expect("Unable to run get_and_insert_user");
-
-    // let DATABASE_PATH: PathBuf = PathBuf::from("../../assets/");
-    // create_database_tables()?;
-    // execute_sql_from_file(&DATABASE_PATH, format!("{}{}", SQL_FILE_PATH, "TBD.sql"))?;
-    // insert_username()?;
-    // execute_sql_from_file(DATABASE_PATH, "../../exam_creation.sql")?;
-    // execute_sql_from_file(DATABASE_PATH, "../../questions.sql")?;
-}
+ */
