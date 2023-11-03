@@ -3,8 +3,8 @@ use chrono::{DateTime, Datelike, Utc};
 use rusqlite::Connection;
 use std::{env, fs};
 use std::fs::{create_dir, read_to_string};
-use std::io::{stdin, stdout, Write};
-use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
+use std::io::{ErrorKind, stdin, stdout, Write};
+use std::path::{Path, PathBuf};
 use std::process::exit;
 
 const ASSET_DIR_NAME: &str = "assets";
@@ -22,55 +22,75 @@ const QUESTIONS_TABLE: &str = "questions.sql";
 /// - Exams (**ExamID**: Int, Title: Text, Description: Text)
 /// - ExamCreation (_**ExamID**_: Int, _**CreatorUsername**_: Text, DateCreated: Text)
 /// - Questions (**QuestionID**: Int, QuestionText: Text, Options: Text, CorrectAnswer: Text, Explanation: Text, *ExamID*: Int)
+/// - UserQuestionResponses (ResponseID, )
 fn create_database_and_tables(db_path: &Path) -> rusqlite::Result<()> {
     // Creates the database if it doesn't exists, and opens it for updating.
     let conn = Connection::open(db_path)?;
 
-    // Create Users Table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Users (\
-        Username TEXT NOT NULL UNIQUE,\
-        Password TEXT,\
-        )",
-        [],
-    )?;
+    // TODO: Delete the drop statements and the code to execute it when done testing
+    println!("Dropping tables...");
+    let drop_usr_q_res = "DROP TABLE IF EXISTS UserQuestionResponses";
+    let drop_questions = "DROP TABLE IF EXISTS Questions";
+    let drop_exam_cre = "DROP TABLE IF EXISTS ExamCreation";
+    let drop_exams = "DROP TABLE IF EXISTS Exams";
+    let drop_users = "DROP TABLE IF EXISTS Users";
 
-    // Create Exams
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Exams (\
-        ExamID INTEGER PRIMARY KEY AUTOINCREMENT,\
-        Title TEXT NOT NULL,\
-        Description TEXT,\
-        )",
-        [],
-    )?;
+    conn.execute(drop_usr_q_res, [])?;
+    conn.execute(drop_questions, [])?;
+    conn.execute(drop_exam_cre, [])?;
+    conn.execute(drop_exams, [])?;
+    conn.execute(drop_users, [])?;
+    // TODO: End of delete for testing
 
-    // Create ExamCreation Table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS ExamCreation (\
-        ExamID INTEGER NOT NULL,\
-        CreatorUsername TEXT NOT NULL,\
-        DateCreated TEXT NOT NULL,\
-        PRIMARY KEY (ExamID, CreatorUsername)
-        FOREIGN KEY (ExamID) REFERENCES Exams(ExamID),\
-        FOREIGN KEY (CreatorUsername) REFERENCES Users(Username)\
-        )",
-        [],
-    )?;
+    let users_sql =
+        "CREATE TABLE IF NOT EXISTS Users (
+           Username TEXT NOT NULL UNIQUE,
+           Password TEXT NOT NULL
+        )";
+    conn.execute(users_sql, [])?;
 
-    // Create Questions Table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Questions (\
-        QuestionID INTEGER PRIMARY KEY AUTOINCREMENT,\
-        QuestionText TEXT,\
-        Options TEXT,\
-        CorrectAnswer TEXT,\
-        Explanation TEXT,\
-        ExamID INTEGER,\
-        FOREIGN KEY (ExamID) REFERENCES Exams(ExamID)\
-        )",
-        [],
-    )?;
+    let exams_sql =
+    "CREATE  TABLE IF NOT EXISTS Exams (
+       ExamID INTEGER PRIMARY KEY AUTOINCREMENT,
+       Title TEXT NOT NULL,
+       Description TEXT
+    )";
+    conn.execute(exams_sql, [])?;
+
+    let exam_creat_sql =
+    "CREATE TABLE IF NOT EXISTS ExamCreation (
+       ExamID INTEGER NOT NULL,
+       CreatorUsername TEXT NOT NULL,
+       DateCreated TEXT NOT NULL,
+       PRIMARY KEY (ExamID, CreatorUsername),
+       FOREIGN KEY (ExamID) REFERENCES Exams(ExamID),
+       FOREIGN KEY (CreatorUsername) REFERENCES Users(Username)
+    )";
+    conn.execute(exam_creat_sql, [])?;
+
+    let questions_sql =
+    "CREATE TABLE IF NOT EXISTS Questions (
+       QuestionID INTEGER PRIMARY KEY AUTOINCREMENT,
+       ExamID INTEGER NOT NULL,
+       QuestionText TEXT NOT NULL,
+       Options TEXT NOT NULL,
+       CorrectAnswer TEXT NOT NULL,
+       Explanation TEXT NOT NULL,
+       FOREIGN KEY (ExamID) REFERENCES Exams(ExamID)
+    )";
+    conn.execute(questions_sql, [])?;
+
+    let user_question_responses_sql =
+    "CREATE TABLE IF NOT EXISTS UserQuestionResponses (
+       ResponseID INTEGER PRIMARY KEY AUTOINCREMENT,
+       Username TEXT NOT NULL,
+       QuestionID INTEGER NOT NULL,
+       IsCorrect INTEGER DEFAULT 0,
+       Timestamp TEXT,
+       FOREIGN KEY (Username) REFERENCES Users (Username),
+       FOREIGN KEY (QuestionID) REFERENCES Questions (QuestionID)
+    )";
+    conn.execute(user_question_responses_sql, [])?;
 
     Ok(())
 }
@@ -88,7 +108,7 @@ fn create_database_and_tables(db_path: &Path) -> rusqlite::Result<()> {
 /// `ExamCreation` adjustment since the `ExamCreation` table requires information from both the
 /// `Users` table (for the `CreatorUsername`) and the `Exams` table (for the `ExamID`) foreign
 /// keys.**
-fn _execute_sql_from_file(db_path: &Path, sql_file_path: &PathBuf) {
+fn execute_sql_from_file(db_path: &Path, sql_file_path: &PathBuf) {
     // Open the database connection
     let conn: Connection = Connection::open(db_path).expect("Unable to open connection to db.");
 
@@ -97,10 +117,10 @@ fn _execute_sql_from_file(db_path: &Path, sql_file_path: &PathBuf) {
             Ok(_) => println!("Batch sql execution successful."),
             Err(e) => eprintln!("Unable to execute batch sql: {}", e),
         }
+    } else {
+        eprintln!("Couldn't convert sql batch script path to string...");
     }
 }
-
-
 
 
 fn main() {
@@ -109,14 +129,23 @@ fn main() {
     base_path.pop();
     base_path.push(ASSET_DIR_NAME);
 
-    // Create assets directory two levels up from cwd
-    if create_dir(&base_path).is_err() {
-        eprintln!("Unable to create the {} directory.", ASSET_DIR_NAME);
-        exit(1)
+    match create_dir(&base_path) {
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            println!("The {} directory already exists; no need to create it...", ASSET_DIR_NAME);
+        },
+        Err(e) => {
+            eprintln!("Error occurred and caught by me: {}", e);
+            exit(1);
+        },
+        _ => println!("Created {} directory.", ASSET_DIR_NAME),
+
     }
 
-    println!("Created {} directory.", ASSET_DIR_NAME);
+    // Database path
+    let mut db_path: PathBuf = PathBuf::from(&base_path);
+    db_path = db_path.join(DATABASE_NAME);
 
+    /*
     // Establish paths to DB and .sql files for each DB Table
     // Database path
     let mut db_path: PathBuf = PathBuf::from(&base_path);
@@ -137,17 +166,22 @@ fn main() {
     // Questions table path
     let mut questions_path: PathBuf = PathBuf::from(&base_path);
     questions_path.push(QUESTIONS_TABLE);
+     */
 
-    // Create the database and all tables (code works):
-    if create_database_and_tables(&db_path).is_err() {
-        eprintln!("Unable to create database and tables.");
-        exit(1)
+    match create_database_and_tables(&db_path) {
+        Err(e) => {
+            eprintln!("An error occurred setting up the database/tables: {}", e);
+            exit(1);
+        },
+        _ => println!("Database and tables created successfully..."),
     }
 
-    println!("Database and tables created successfully.");
 
 
-    // TODO: Execute the batch SQL commands to build the records in the database.
+    let mut test_sql_batch = PathBuf::from(&base_path);
+    test_sql_batch = test_sql_batch.join("test_script.sql");
+
+    execute_sql_from_file(&db_path, &test_sql_batch);
 
     //let DATABASE: PathBuf = PathBuf::from(format!("{}{}", "./", DATABASE_NAME));
 

@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 bcrypt = "0.15.0"
 chrono = "0.4.31"
+regex = "1.10.2"
 rusqlite = "0.29.0"
