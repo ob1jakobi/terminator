@@ -146,6 +146,7 @@ fn main() {
 
     println!("Database and tables created successfully.");
 
+
     // TODO: Execute the batch SQL commands to build the records in the database.
 
     //let DATABASE: PathBuf = PathBuf::from(format!("{}{}", "./", DATABASE_NAME));
