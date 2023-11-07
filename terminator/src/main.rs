@@ -20,6 +20,23 @@ const LOGO: &str = "
 ";
 
 #[derive(Debug)]
+struct UserError {
+    source: Box<dyn Error>,
+}
+
+impl Display for UserError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "An error occurred with regards to the user. {}", self.source.deref())
+    }
+}
+
+impl Error for UserError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.source.deref())
+    }
+}
+
+#[derive(Debug)]
 struct NoSuchUser;
 
 impl Display for NoSuchUser {
@@ -43,22 +60,141 @@ impl Display for BadPassword {
 impl Error for BadPassword {}
 
 #[derive(Debug)]
-struct UserError {
-    source: Box<dyn Error>,
-}
+struct UserExists;
 
-impl Display for UserError {
+impl Display for UserExists {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "An error occurred with regards to the user. {}", self.source.deref())
+        write!(f, "UserExists error - username is taken, please select a different username or login with username")
     }
 }
 
-impl Error for UserError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.source.deref())
+impl Error for UserExists {}
+
+
+mod term_user {
+    use std::env;
+    use std::io::{stdin, stdout, Write};
+    use bcrypt::DEFAULT_COST;
+    use regex::Regex;
+    use rusqlite::Connection;
+    use crate::{UserError, UserExists};
+
+    pub struct User {
+        pub username: String,
+        pub password: String,
+    }
+
+    impl User {
+        pub fn new() -> Result<Self, UserError> {
+            let mut db_path = env::current_dir().expect("Unable to get cwd");
+            db_path.pop();
+            db_path = db_path.join("assets/terminator.db");
+            let conn: Connection = Connection::open(db_path).expect("Unable to open db...");
+            let username = Self::create_username(None, &conn);
+            let not_hashed_pw = Self::create_password(None);
+            let password = bcrypt::hash(&not_hashed_pw, DEFAULT_COST).expect("Unable to hash pw.");
+            match username {
+                Ok(un) => {
+                    match conn.execute(
+                        "INSERT INTO Users VALUES (?1, ?2)",
+                        [&un, &password],
+                    ) {
+                        Ok(_) => Ok(User {username: un, password}),
+                        Err(e) => Err(UserError {source: Box::new(e)}),
+                    }
+                },
+                Err(e) => Err(e),
+            }
+        }
+
+        pub fn get_user(username: &str, password: &str, conn: &Connection) -> Option<User> {
+            // TODO:
+        }
+        fn create_username(username: Option<String>,conn: &Connection) -> Result<String, UserError> {
+            let temp: String = match username {
+                Some(name) => name,
+                None => Self::input("Enter your desired username: "),
+            };
+            match conn.query_row(
+                "SELECT COUNT(*) FROM Users WHERE Username = ?1",
+                [&temp],
+                |row| row.get(0),
+            ) {
+                Ok(num) if num == 0 => Ok(temp),
+                Ok(_) => Err(UserError {source: Box::new(UserExists)}),
+                Err(e) => Err(UserError {source: Box::new(e)}),
+            }
+        }
+
+        fn create_password(password: Option<String>) -> String {
+            let prompt: &str = "Password must be at least 10 characters long, have at least one \
+            uppercase character, at least one number, and at least one special character (!@#$%^&*)\n\
+            Please enter your desired password: ";
+            let result: String;
+            let temp: String = match password {
+                Some(pw) => pw,
+                None => Self::input(prompt),
+            };
+            if Self::is_valid_password(&temp) {
+                result = temp;
+            } else {
+                loop {
+                    let temp = Self::input(prompt);
+                    if Self::is_valid_password(&temp) {
+                        result = temp;
+                        break;
+                    }
+                }
+            }
+            result
+        }
+
+        fn input(prompt: &str) -> String {
+            let mut result: String = String::new();
+            loop {
+                result.clear();
+                print!("{}", prompt);
+                stdout().flush().expect("Unable to flush stdout...");
+                stdin().read_line(&mut result).expect("Unable to read stdin...");
+                let temp1: String = String::from(result.trim());
+
+                if temp1.is_empty() {
+                    println!("Entry must not be empty!");
+                    continue;
+                }
+
+                result.clear();
+                print!("Please confirm entry: ");
+                stdout().flush().expect("Unable to flush stdout...");
+                stdin().read_line(&mut result).expect("Unable to read stdin...");
+                let temp2: &str = result.trim();
+
+                if !temp1.eq(temp2) {
+                    println!("Entries must match!");
+                } else {
+                    result = temp1;
+                    break;
+                }
+            }
+            result
+        }
+
+        fn is_valid_password(password: &str) -> bool {
+            let uppercase_regex = Regex::new(r"[A-Z]").unwrap();
+            let digit_regex = Regex::new(r"\d").unwrap();
+            let special_char_regex = Regex::new(r"[!@#$%^&*]").unwrap();
+
+            let has_uppercase = uppercase_regex.is_match(password);
+            let has_digit = digit_regex.is_match(password);
+            let has_spec_char = special_char_regex.is_match(password);
+            let has_strong_length = password.len() >= 10;
+
+            has_uppercase && has_digit && has_spec_char && has_strong_length
+        }
     }
 }
 
+/* Original implementation of User
 mod term_user {
     use bcrypt::DEFAULT_COST;
     use regex::Regex;
@@ -171,6 +307,8 @@ mod term_user {
         }
     }
 }
+*/
+
 /*
 struct Question {
     question_id: i32,
