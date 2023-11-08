@@ -110,10 +110,11 @@ mod term_user {
     impl User {
         /// Creates a new `User` and adds them to them to the database given via `conn`.
         pub fn new(conn: &Connection) -> Result<Self, UserError> {
-            let username = Self::create_username(None, &conn);
-            let password = Self::create_password(None);
-            match username {
-                Ok(username) => Self::new_from_str(&username, &password, conn),
+            match Self::create_username(None, &conn) {
+                Ok(username) => {
+                    let password: String = Self::create_password(None);
+                    Self::new_from_str(&username, &password, &conn)
+                },
                 Err(e) => Err(e),
             }
         }
