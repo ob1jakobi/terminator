@@ -94,7 +94,6 @@ impl Error for BadQuery {}
 
 
 mod term_user {
-    use std::intrinsics::fabsf32;
     use std::io::{stdin, stdout, Write};
     use bcrypt::DEFAULT_COST;
     use regex::Regex;
