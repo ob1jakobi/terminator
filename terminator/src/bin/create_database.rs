@@ -1,18 +1,14 @@
-use bcrypt::DEFAULT_COST;
-use chrono::{DateTime, Datelike, Utc};
-use rusqlite::Connection;
-use std::{env, fs};
+// use chrono::{DateTime, Datelike, Utc};
+use rusqlite::{Connection, params};
+use std::env;
 use std::fs::{create_dir, read_to_string};
-use std::io::{ErrorKind, stdin, stdout, Write};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::exit;
+use bcrypt::DEFAULT_COST;
 
 const ASSET_DIR_NAME: &str = "assets";
 const DATABASE_NAME: &str = "terminator.db";
-const USERS_TABLE: &str = "users.sql";
-const EXAMS_TABLE: &str = "exams.sql";
-const EXAM_CREATION_TABLE: &str = "exam_creation.sql";
-const QUESTIONS_TABLE: &str = "questions.sql";
 
 #[doc(hidden)]
 /// Creates the database, `terminator.db`, and the tables for `terminator.db`.
@@ -21,8 +17,9 @@ const QUESTIONS_TABLE: &str = "questions.sql";
 /// - Users (**Username**: Text, Password: Text)
 /// - Exams (**ExamID**: Int, Title: Text, Description: Text)
 /// - ExamCreation (_**ExamID**_: Int, _**CreatorUsername**_: Text, DateCreated: Text)
-/// - Questions (**QuestionID**: Int, QuestionText: Text, Options: Text, CorrectAnswer: Text, Explanation: Text, *ExamID*: Int)
-/// - UserQuestionResponses (ResponseID, )
+/// - ChoicesAndAnswers (**AnswerID**: Int, OptA: Text, OptB: Text, OptC: Text, OptD: Text, Explanation: Text, Refs: Text)
+/// - Questions (**QuestionID**: Int, QuestionText: Text, _Answers_: Int, _ExamID_: Int)
+/// - UserQuestionResponses (**ResponseID**: Int, _Username_: Text, _QuestionID_: Int, IsCorrect: Int, Timestamp: Text)
 fn create_database_and_tables(db_path: &Path) -> rusqlite::Result<()> {
     // Creates the database if it doesn't exists, and opens it for updating.
     let conn = Connection::open(db_path)?;
@@ -30,12 +27,14 @@ fn create_database_and_tables(db_path: &Path) -> rusqlite::Result<()> {
     // TODO: Delete the drop statements and the code to execute it when done testing
     println!("Dropping tables...");
     let drop_usr_q_res = "DROP TABLE IF EXISTS UserQuestionResponses";
+    let drop_choices_and_ans = "DROP TABLE IF EXISTS ChoicesAndAnswers";
     let drop_questions = "DROP TABLE IF EXISTS Questions";
     let drop_exam_cre = "DROP TABLE IF EXISTS ExamCreation";
     let drop_exams = "DROP TABLE IF EXISTS Exams";
     let drop_users = "DROP TABLE IF EXISTS Users";
 
     conn.execute(drop_usr_q_res, [])?;
+    conn.execute(drop_choices_and_ans, [])?;
     conn.execute(drop_questions, [])?;
     conn.execute(drop_exam_cre, [])?;
     conn.execute(drop_exams, [])?;
@@ -68,15 +67,27 @@ fn create_database_and_tables(db_path: &Path) -> rusqlite::Result<()> {
     )";
     conn.execute(exam_creat_sql, [])?;
 
+    // ChoicesAndAnswers (**AnswerID**: Int, Opt1: Text, Opt2: Text, Opt3: Text, Opt4: Text, Explanation: Text, Refs: Text)
+    let choice_and_ans_sql =
+    "CREATE TABLE IF NOT EXISTS ChoicesAndAnswers (
+       AnswerID INTEGER PRIMARY KEY AUTOINCREMENT,
+       OptA TEXT NOT NULL,
+       OptB TEXT NOT NULL,
+       OptC TEXT NOT NULL,
+       OptD TEXT NOT NULL,
+       Explanation TEXT NOT NULL,
+       Refs TEXT NOT NULL
+    )";
+    conn.execute(choice_and_ans_sql, [])?;
+
     let questions_sql =
     "CREATE TABLE IF NOT EXISTS Questions (
        QuestionID INTEGER PRIMARY KEY AUTOINCREMENT,
        ExamID INTEGER NOT NULL,
        QuestionText TEXT NOT NULL,
-       Options TEXT NOT NULL,
-       CorrectAnswer TEXT NOT NULL,
-       Explanation TEXT NOT NULL,
-       FOREIGN KEY (ExamID) REFERENCES Exams(ExamID)
+       AnswerID INT NOT NULL,
+       FOREIGN KEY (ExamID) REFERENCES Exams(ExamID),
+       FOREIGN KEY (AnswerID) REFERENCES ChoicesAndAnswers(AnswerID)
     )";
     conn.execute(questions_sql, [])?;
 
@@ -124,11 +135,13 @@ fn execute_sql_from_file(db_path: &Path, sql_file_path: &PathBuf) {
 
 
 fn main() {
+    // Establish the base_path to be the assets directory (contains the db and sql scripts)
     let mut base_path: PathBuf = env::current_dir().expect("Unable to get current directory...");
     base_path.pop();
     base_path.pop();
     base_path.push(ASSET_DIR_NAME);
 
+    // Creates the assets directory if it doesn't already exist and prints out relevant details
     match create_dir(&base_path) {
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
             println!("The {} directory already exists; no need to create it...", ASSET_DIR_NAME);
@@ -141,34 +154,12 @@ fn main() {
 
     }
 
-    // Database path
+    // Establish path to the db and print out db's path
     let mut db_path: PathBuf = PathBuf::from(&base_path);
     db_path = db_path.join(DATABASE_NAME);
     println!("db_path:\t{:?}", db_path);
 
-    /*
-    // Establish paths to DB and .sql files for each DB Table
-    // Database path
-    let mut db_path: PathBuf = PathBuf::from(&base_path);
-    db_path.push(DATABASE_NAME);
-
-    // Users table path
-    let mut users_path: PathBuf = PathBuf::from(&base_path);
-    users_path.push(USERS_TABLE);
-
-    // Exams table path
-    let mut exams_path: PathBuf = PathBuf::from(&base_path);
-    exams_path.push(EXAMS_TABLE);
-
-    // ExamCreation table path
-    let mut exam_creation_path: PathBuf = PathBuf::from(&base_path);
-    exam_creation_path.push(EXAM_CREATION_TABLE);
-
-    // Questions table path
-    let mut questions_path: PathBuf = PathBuf::from(&base_path);
-    questions_path.push(QUESTIONS_TABLE);
-     */
-
+    // Create the database - drops the current tables from the db if they already exist first
     match create_database_and_tables(&db_path) {
         Err(e) => {
             eprintln!("An error occurred setting up the database/tables: {}", e);
@@ -177,12 +168,28 @@ fn main() {
         _ => println!("Database and tables created successfully..."),
     }
 
-
-
+    /* Works to establish test via text_script.sql
     let mut test_sql_batch = PathBuf::from(&base_path);
     test_sql_batch = test_sql_batch.join("test_script.sql");
-
     execute_sql_from_file(&db_path, &test_sql_batch);
+     */
+
+    // TODO: Delete me as the first user
+    // Creates the first user - me - for testing; username: OB1Jakobi, password: P@ssw0rd!!
+    let my_username: String = String::from("OB1Jakobi");
+    let mut my_password: String = String::from("P@ssw0rd!!");
+    my_password = bcrypt::hash(&my_password, DEFAULT_COST).expect("Unable to hash my default password");
+    let conn: Connection = Connection::open(&db_path).expect("unable to open connection to db");
+    conn.execute(
+        "INSERT INTO Users (Username, Password) VALUES (?1, ?2)",
+        params![my_username, my_password],
+    ).expect("Unable to insert initial user (ME) into the Users db");
+    // TODO: End of creating myself as first user
+
+    // Executes the batch script for setting up the production database.
+    let mut prod_sql_batch = PathBuf::from(&base_path);
+    prod_sql_batch = prod_sql_batch.join("prod_script.sql");
+    execute_sql_from_file(&db_path, &prod_sql_batch);
 
     //let DATABASE: PathBuf = PathBuf::from(format!("{}{}", "./", DATABASE_NAME));
 

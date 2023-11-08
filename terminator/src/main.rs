@@ -48,16 +48,27 @@ impl Display for NoSuchUser {
 impl Error for NoSuchUser {}
 
 #[derive(Debug)]
-struct BadPassword;
+struct WeakPassword;
 
-impl Display for BadPassword {
+impl Display for WeakPassword {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Password must be at least 10 characters long, use uppercase and lowercase letters,\
         and use at least one symbol.")
     }
 }
 
-impl Error for BadPassword {}
+impl Error for WeakPassword {}
+
+#[derive(Debug)]
+struct PasswordMismatch;
+
+impl Display for PasswordMismatch {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PasswordMismatch error - passwords must match.")
+    }
+}
+
+impl Error for PasswordMismatch{}
 
 #[derive(Debug)]
 struct UserExists;
@@ -83,11 +94,12 @@ impl Error for BadQuery {}
 
 
 mod term_user {
+    use std::intrinsics::fabsf32;
     use std::io::{stdin, stdout, Write};
     use bcrypt::DEFAULT_COST;
     use regex::Regex;
-    use rusqlite::Connection;
-    use crate::{UserError, UserExists};
+    use rusqlite::{Connection, params};
+    use crate::{PasswordMismatch, UserError, UserExists};
 
     #[derive(Debug)]
     pub struct User {
@@ -142,6 +154,20 @@ mod term_user {
                 }
             } else {
                 None
+            }
+        }
+
+        pub fn change_password(&mut self, conn: &Connection) -> Result<bool, UserError> {
+            let current_pw = Self::input("Enter current password: ");
+            if bcrypt::verify(&current_pw, &self.password).unwrap_or(false) {
+                let mut new_pw = Self::create_password(None);
+                new_pw = bcrypt::hash(new_pw, DEFAULT_COST).expect("Unable to hash new password");
+                match conn.execute("UPDATE Users SET Password = ? WHERE Username = ?", params![new_pw, &self.username]) {
+                    Ok(_) => Ok(true),
+                    Err(e) => Err(UserError {source: Box::new(e)}),
+                }
+            } else {
+                Err(UserError {source: Box::new(PasswordMismatch)})
             }
         }
 
@@ -298,11 +324,6 @@ fn main() {
     if let Ok(conn) = Connection::open(&db) {
         println!("Successfully connected to database...");
         // TODO: Logic for playing the game
-        if let Ok(user) = User::new(&conn) {
-            println!("New User created:\t{:?}", user);
-        } else {
-            println!("Couldn't create new user...");
-        }
     } else {
         eprintln!("Unable to connect to database...");
     }
