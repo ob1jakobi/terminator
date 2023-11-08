@@ -137,13 +137,14 @@ fn main() {
             eprintln!("Error occurred and caught by me: {}", e);
             exit(1);
         },
-        _ => println!("Created {} directory.", ASSET_DIR_NAME),
+        Ok(()) => println!("Created {} directory.", ASSET_DIR_NAME),
 
     }
 
     // Database path
     let mut db_path: PathBuf = PathBuf::from(&base_path);
     db_path = db_path.join(DATABASE_NAME);
+    println!("db_path:\t{:?}", db_path);
 
     /*
     // Establish paths to DB and .sql files for each DB Table
