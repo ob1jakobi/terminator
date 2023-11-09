@@ -1,10 +1,6 @@
-use std::error::Error;
 use std::env;
-use std::fmt::{Display, Formatter};
-use std::ops::Deref;
 use std::path::PathBuf;
 use rusqlite::{Connection};
-use crate::term_user::User;
 
 const LOGO: &str = "
 
@@ -18,88 +14,91 @@ const LOGO: &str = "
 ";
 const ASSETS_DIR: &str = "assets";
 const DB_NAME: &str = "terminator.db";
-const NETWORK_EXAM: &str = "CompTIA Network+ (N10-008)";
 
-#[derive(Debug)]
-struct UserError {
-    source: Box<dyn Error>,
-}
 
-impl Display for UserError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "An error occurred with regards to the user. {}", self.source.deref())
-    }
-}
-
-impl Error for UserError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.source.deref())
-    }
-}
-
-#[derive(Debug)]
-struct NoSuchUser;
-
-impl Display for NoSuchUser {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NoSuchUser Error - no user can be found")
-    }
-}
-
-impl Error for NoSuchUser {}
-
-#[derive(Debug)]
-struct WeakPassword;
-
-impl Display for WeakPassword {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Password must be at least 10 characters long, use uppercase and lowercase letters,\
-        and use at least one symbol.")
-    }
-}
-
-impl Error for WeakPassword {}
-
-#[derive(Debug)]
-struct PasswordMismatch;
-
-impl Display for PasswordMismatch {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PasswordMismatch error - passwords must match.")
-    }
-}
-
-impl Error for PasswordMismatch{}
-
-#[derive(Debug)]
-struct UserExists;
-
-impl Display for UserExists {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UserExists error - username is taken, please select a different username or login with username")
-    }
-}
-
-impl Error for UserExists {}
-
-#[derive(Debug)]
-struct BadQuery;
-
-impl Display for BadQuery {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BadQuery - Error with query in terminator database")
-    }
-}
-
-impl Error for BadQuery {}
 
 
 mod term_user {
+    use std::ops::Deref;
+    use std::error::Error;
+    use std::fmt::{Display, Formatter};
     use std::io::{stdin, stdout, Write};
     use bcrypt::DEFAULT_COST;
     use regex::Regex;
     use rusqlite::{Connection, params};
-    use crate::{PasswordMismatch, UserError, UserExists};
+
+    #[derive(Debug)]
+    struct UserError {
+        source: Box<dyn Error>,
+    }
+
+    impl Display for UserError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "An error occurred with regards to the user. {}", self.source.deref())
+        }
+    }
+
+    impl Error for UserError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(self.source.deref())
+        }
+    }
+
+    #[derive(Debug)]
+    struct NoSuchUser;
+
+    impl Display for NoSuchUser {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "NoSuchUser Error - no user can be found")
+        }
+    }
+
+    impl Error for NoSuchUser {}
+
+    #[derive(Debug)]
+    struct WeakPassword;
+
+    impl Display for WeakPassword {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Password must be at least 10 characters long, use uppercase and lowercase letters,\
+        and use at least one symbol.")
+        }
+    }
+
+    impl Error for WeakPassword {}
+
+    #[derive(Debug)]
+    struct PasswordMismatch;
+
+    impl Display for PasswordMismatch {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "PasswordMismatch error - passwords must match.")
+        }
+    }
+
+    impl Error for PasswordMismatch{}
+
+    #[derive(Debug)]
+    struct UserExists;
+
+    impl Display for UserExists {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "UserExists error - username is taken, please select a different username or login with username")
+        }
+    }
+
+    impl Error for UserExists {}
+
+    #[derive(Debug)]
+    struct BadQuery;
+
+    impl Display for BadQuery {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "BadQuery - Error with query in terminator database")
+        }
+    }
+
+    impl Error for BadQuery {}
 
     #[derive(Debug)]
     pub struct User {
@@ -265,173 +264,6 @@ mod term_user {
     }
 }
 
-
-mod game {
-    use std::env;
-    use std::io::{stdin, stdout, Write};
-    use std::process::exit;
-    use rusqlite::Connection;
-    use crate::{ASSETS_DIR, DB_NAME, NETWORK_EXAM};
-    use crate::term_user::User;
-
-    struct Question {
-        exam_id: i32,
-        prompt: String,
-        ans_id: i32,
-    }
-
-    struct Answer {
-        ans_id: i32,
-        a: String,
-        b: String,
-        c: String,
-        d: String,
-        ans: String,
-        refs: String,
-    }
-
-    struct QuestionAndAnswer {
-        question: Question,
-        answer: Answer,
-    }
-
-    struct Exam {
-        exam_id: i32,
-        name: String,
-        desc: String,
-    }
-
-    struct Game {
-        conn: Connection,
-        exam: Exam,
-        user: User,
-        questions: Vec<QuestionAndAnswer>,
-    }
-
-    impl Game {
-        pub fn new() -> Self {
-            let conn = Self::establish_conn();
-            let exam_name = Self::input("Enter the name of the exam: ");
-            // TODO: Implement logic for creating a new game
-        }
-
-        fn new_or_curr_user(&self) -> Option<User> {
-            let mut temp: String = String::new();
-            let (username, password): (String, String);
-            println!("Would you like to play a game as a new user or a current user?");
-            loop {
-                temp.clear();
-                print!("Enter 'n' for new user, 'c' for current user, or 'q' to quit: ");
-                stdout().flush().expect("Unable to flush stdout...");
-                stdin().read_line(&mut temp).expect("Unable to read stdin...");
-                let choice = temp.trim();
-
-                match choice {
-                    "n" => {
-                        if let Ok(new_user) = User::new(&self.conn) {
-                            return Some(new_user);
-                        } else {
-                            println!("Something went wrong... please try again...");
-                        }
-                    },
-                    "c" => {
-                        username = Self::input("Enter the username: ");
-                        password = Self::input("Enter the password: ");
-                        return User::get_user_from_str(&username, &password, &self.conn);
-                    },
-                    "q" => exit(0),
-                    _ => println!("Enter a valid character!"),
-                }
-            }
-        }
-
-        fn establish_conn() -> Connection {
-            let cwd = env::current_dir().expect("Unable to get cwd");
-            let mut db_path = cwd.join(ASSETS_DIR);
-            db_path.push(DB_NAME);
-            Connection::open(db_path).expect("Unable to open db connection.")
-        }
-
-        fn input(prompt: &str) -> String {
-            let mut result: String = String::new();
-            loop {
-                result.clear();
-                print!("{}", prompt);
-                stdout().flush().expect("Couldn't flush stdout...");
-                stdin().read_line(&mut result).expect("Couldn't obtain stdin...");
-                let temp1: String = String::from(result.trim());
-
-                if temp1.is_empty() {
-                    println!("Input must not be empty!");
-                    continue;
-                }
-
-                result.clear();
-                print!("Confirm entry: ");
-                stdout().flush().expect("Couldn't flush stdout...");
-                stdin().read_line(&mut result).expect("Couldn't obtain stdin...");
-                let temp2: &str = result.trim();
-
-                if !temp1.eq(temp2) {
-                    println!("Entries must match!");
-                    continue;
-                } else {
-                    result = String::from(temp2);
-                    break;
-                }
-            }
-            result
-        }
-    }
-}
-
-
-/*
-struct Question {
-    question_id: i32,
-    question_text: String,
-    options: String,
-    answer: String,
-    explanation: String,
-    exam_id: i32,
-}
-
-struct Exam {
-    exam_id: i32,
-    exam_title: String,
-    exam_desc: String,
-    questions: Vec<Question>,
-}
-
-struct Game {
-    conn: Connection,
-    user: User,
-    exam: Exam,
-}
-
-impl Game {
-
-    pub fn new() -> Self {
-        let mut db: PathBuf = env::current_dir().expect("Unable to get current directory");
-        db.pop();
-        db.pop();
-        db = db.join("/assets/terminator.db");
-        let conn: Connection = Connection::open(db).expect("Unable to open db");
-
-        Game {
-            conn,
-            user: User::new(),
-        }
-    }
-    pub fn new_game_with_existing_user(username: &str) -> Self {
-
-
-    }
-
-    pub fn new_game_with_new_user() -> Self {
-
-    }
-}*/
 
 
 fn main() {
